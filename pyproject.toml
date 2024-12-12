@@ -17,6 +17,7 @@ pubsub = ["google-cloud-pubsub"]
 
 [tool.uv]
 dev-dependencies = [
+    "mkdocs-material>=9.5.48",
     "moto[sqs]>=5.0.22",
     "mypy>=1.13.0",
     "pytest-mock>=3.14.0",

@@ -11,5 +11,5 @@ format:
 .PHONY: lint
 lint:
 	uv run ruff check --select I
-	uv run ruff chec
+	uv run ruff check
 	uv run ruff format --check
