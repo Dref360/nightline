@@ -14,6 +14,7 @@ class UserAction(BaseModel):
     user_id: int
     action: str
 
+
 @pytest.fixture
 def mock_sqs_environment():
     """
