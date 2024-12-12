@@ -3,6 +3,7 @@
 
 *Nightline is a modern Event Listening framework based on Pydantic.*
 
+[Docs](https://dref360.github.io/nightline/) [PyPI](https://pypi.org/project/nightline/)
 
 Supports:
 * ✅ AWS Simple Queue Service (SQS)
