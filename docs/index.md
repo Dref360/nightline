@@ -1,7 +1,10 @@
 
-# 🌒 Nightline
-
-*Nightline is a modern Event Listening framework based on Pydantic.*
+<p align="center">
+    <img src="assets/logo.png" width="50%">
+</p>
+<p align="center">
+    <i>Nightline is a modern Event Listening framework based on Pydantic.</i>
+</p>
 
 
 Supports:
