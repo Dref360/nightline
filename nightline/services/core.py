@@ -5,6 +5,10 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Callable, Dict, Optional, Type
 
+import structlog
+
+log = structlog.get_logger(__name__)
+
 
 @dataclass
 class EventStreamConfig:
@@ -44,7 +48,7 @@ class AbstractEventStreamListener(abc.ABC):
     def listen(
         self,
         handler: Callable,
-        error_handler: Optional[Callable[[Exception], None]] = None,
+        error_handler: Optional[Callable[[Exception, Dict], None]] = None,
     ) -> None:
         """
         Start listening to the event stream and process messages.
@@ -110,4 +114,5 @@ class AbstractEventStreamListener(abc.ABC):
             if error_handler:
                 error_handler(e, message)
             else:
+                log.error("Couldn't process message", exc_info=e)
                 raise

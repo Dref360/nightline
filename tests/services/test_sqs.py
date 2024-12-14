@@ -26,7 +26,7 @@ def mock_sqs_environment():
     # Start moto mock for SQS
     with mock_aws():
         # Create SQS client
-        sqs_client = boto3.client("sqs", region_name="us-east-1")
+        sqs_client = boto3.client("sqs")
 
         # Create a test queue
         queue_response = sqs_client.create_queue(QueueName="test-queue")
@@ -148,7 +148,7 @@ def test_error_handling(queue_messages, mocker):
     # Create a threading event to signal test completion
     processing_complete = threading.Event()
 
-    def error_handler(exception):
+    def error_handler(exception, message):
         """Capture and handle errors"""
         error_handler_mock(exception)
         processing_complete.set()

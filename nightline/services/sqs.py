@@ -1,5 +1,8 @@
+import concurrent.futures
 import json
-from typing import Callable, Optional
+from typing import Callable, Dict, Optional
+
+import structlog
 
 from nightline.services.core import AbstractEventStreamListener, EventStreamConfig
 
@@ -9,6 +12,13 @@ except ImportError:
     raise EnvironmentError(
         "`boto3` not found, please install `nightline[sqs]` or `nightline[all]`"
     )
+
+log = structlog.get_logger(__name__)
+
+
+def done_callback_logging(ft: concurrent.futures.Future):
+    if e := ft.exception():
+        log.error("Error during processing", exc_info=e)
 
 
 class AWSSQSEventStreamListener(AbstractEventStreamListener):
@@ -31,7 +41,7 @@ class AWSSQSEventStreamListener(AbstractEventStreamListener):
     def listen(
         self,
         handler: Callable,
-        error_handler: Optional[Callable[[Exception], None]] = None,
+        error_handler: Optional[Callable[[Exception, Dict], None]] = None,
     ) -> None:
         """
         Listen to SQS queue and process messages.
@@ -48,13 +58,21 @@ class AWSSQSEventStreamListener(AbstractEventStreamListener):
             )
 
             for message in response.get("Messages", []):
+                try:
+                    json_obj = json.loads(message["Body"])
+                except json.JSONDecodeError:
+                    log.warning("Couldn't decode message to JSON")
+                    continue
+
                 # Submit message processing to thread pool
                 future = self._executor.submit(
                     self._process_message,
-                    json.loads(message["Body"]),
+                    json_obj,
                     handler,
                     error_handler,
                 )
+                # Some logs at the end
+                future.add_done_callback(done_callback_logging)
 
                 # Automatically acknowledge if configured
                 if self.config.auto_ack:
