@@ -42,14 +42,14 @@ listener.listen(process_message)
 pip install nightline[sqs] # For SQS Support
 ```
 
-## Contribution
+## Contributing
 
-Contributions are more than welcome! Please open an issue on Github.
+Contributions are welcome! Please check our GitHub repository for guidelines.
 
-### Support
+## Support
 
-For support, please open an issue!
+For support, please open an issue on GitHub.
 
-### Inspirations
+## Inspirations
 
 This project has been heavily inspired by [FastAPI](https://fastapi.tiangolo.com/), we couldn't have done it without them.

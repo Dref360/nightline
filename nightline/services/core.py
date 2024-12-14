@@ -5,10 +5,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Callable, Dict, Optional, Type
 
-import structlog
-
-log = structlog.get_logger(__name__)
-
 
 @dataclass
 class EventStreamConfig:
@@ -96,7 +92,7 @@ class AbstractEventStreamListener(abc.ABC):
         self,
         message: Dict,
         handler: Callable,
-        error_handler: Optional[Callable[[Exception], None]] = None,
+        error_handler: Optional[Callable[[Exception, Dict], None]] = None,
     ) -> None:
         """
         Process a single message with error handling.
@@ -112,6 +108,6 @@ class AbstractEventStreamListener(abc.ABC):
             handler(converted)
         except Exception as e:
             if error_handler:
-                error_handler(e)
+                error_handler(e, message)
             else:
                 raise

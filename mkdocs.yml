@@ -41,4 +41,5 @@ markdown_extensions:
   - pymdownx.tabbed:
       alternate_style: true
 nav:
-  - Nightline: index.md
+  - index.md
+  - getting_started.md
