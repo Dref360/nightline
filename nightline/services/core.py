@@ -1,11 +1,15 @@
 import abc
 import inspect
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Callable, Dict, Optional, Type
+from typing import Callable, Dict, Optional, Type, Union
 
 import structlog
+from pydantic import BaseModel
+
+from nightline.types import Headers
 
 log = structlog.get_logger(__name__)
 
@@ -24,7 +28,7 @@ class EventStreamConfig:
 
     max_workers: int = 2
     max_messages: int = 10
-    wait_time_seconds: int = 20
+    wait_time_seconds: int = 10
     auto_ack: bool = True
 
 
@@ -43,6 +47,7 @@ class AbstractEventStreamListener(abc.ABC):
         """
         self.config = config or EventStreamConfig()
         self._executor = ThreadPoolExecutor(max_workers=self.config.max_workers)
+        self._stop_signal = threading.Event()
 
     @abc.abstractmethod
     def listen(
@@ -59,8 +64,13 @@ class AbstractEventStreamListener(abc.ABC):
         """
         pass
 
+    def stop(self):
+        self._stop_signal.set()
+
     @lru_cache
-    def get_message_typing(self, handler: Callable) -> Optional[Type]:
+    def get_message_typing(
+        self, handler: Callable
+    ) -> Dict[str, Union[Type[BaseModel], Type[Headers]]]:
         """
         Extract the type annotation of the first argument of the handler.
 
@@ -77,24 +87,43 @@ class AbstractEventStreamListener(abc.ABC):
         sig = inspect.signature(handler)
 
         # Get the parameters
-        parameters = list(sig.parameters.values())
+        parameters = sig.parameters
+
+        if any(
+            missing := [
+                n
+                for n, p in parameters.items()
+                if p.annotation == inspect.Parameter.empty
+            ]
+        ):
+            raise ValueError(f"Type annotations required for {missing}")
 
         # Check if there are any parameters
         if not parameters:
             raise ValueError("Handler must have at least one argument")
 
-        # Get the first parameter
-        first_param = parameters[0]
+        if not any(issubclass(p.annotation, BaseModel) for p in parameters.values()):
+            raise ValueError(
+                "At least one parameters must be a Pydantic BaseModel to convert the message"
+            )
 
-        # Check if the first parameter has a type annotation
-        if first_param.annotation == inspect.Parameter.empty:
-            raise ValueError("First argument must have a type annotation")
+        unauthorized_types = [
+            (n, p.annotation)
+            for n, p in parameters.items()
+            if not issubclass(p.annotation, (BaseModel, Headers))
+        ]
+        if unauthorized_types:
+            raise ValueError(
+                f"Supported types include `pydantic.BaseModel` and `nightline.Headers`, but found {unauthorized_types}"
+            )
 
-        return first_param.annotation
+        # All verifications done, found all types.
+        return {n: p.annotation for n, p in parameters.items()}
 
     def _process_message(
         self,
         message: Dict,
+        headers: Dict,
         handler: Callable,
         error_handler: Optional[Callable[[Exception, Dict], None]] = None,
     ) -> None:
@@ -107,12 +136,16 @@ class AbstractEventStreamListener(abc.ABC):
             error_handler: Optional error handling function
         """
         try:
-            type_annot = self.get_message_typing(handler)
-            converted = type_annot(**message)
-            handler(converted)
+            type_mapping = self.get_message_typing(handler)
+            params = {
+                n: t(**message) if issubclass(t, BaseModel) else headers
+                for n, t in type_mapping.items()
+            }
+            handler(**params)
+            log.info("200 - Success")
         except Exception as e:
             if error_handler:
                 error_handler(e, message)
             else:
-                log.error("Couldn't process message", exc_info=e)
+                log.error("500 - Error", exc_info=e)
                 raise
