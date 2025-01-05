@@ -50,9 +50,10 @@ class AWSSQSEventStreamListener(AbstractEventStreamListener):
             handler: Callback to process each message
             error_handler: Optional callback to handle processing errors
         """
-        while True:
+        while not self._stop_signal.is_set():
             response = self._sqs_client.receive_message(
                 QueueUrl=self._queue_url,
+                MessageAttributeNames=["All"],
                 MaxNumberOfMessages=self.config.max_messages,
                 WaitTimeSeconds=self.config.wait_time_seconds,
             )
@@ -60,6 +61,7 @@ class AWSSQSEventStreamListener(AbstractEventStreamListener):
             for message in response.get("Messages", []):
                 try:
                     json_obj = json.loads(message["Body"])
+                    json_headers = message.get("MessageAttributes", {})
                 except json.JSONDecodeError:
                     log.warning("Couldn't decode message to JSON")
                     continue
@@ -68,6 +70,7 @@ class AWSSQSEventStreamListener(AbstractEventStreamListener):
                 future = self._executor.submit(
                     self._process_message,
                     json_obj,
+                    json_headers,
                     handler,
                     error_handler,
                 )

@@ -8,6 +8,7 @@ from moto import mock_aws
 from pydantic import BaseModel
 
 from nightline.services.sqs import AWSSQSEventStreamListener, EventStreamConfig
+from nightline.types import Headers
 
 
 class UserAction(BaseModel):
@@ -49,7 +50,7 @@ def queue_messages(mock_sqs_environment):
     """
     sqs_client, queue_url = mock_sqs_environment
 
-    def _queue_messages(messages: List[Dict[str, Any]]):
+    def _queue_messages(messages: List[Dict[str, Any]], headers=None):
         """
         Queue messages to the SQS queue
 
@@ -61,14 +62,21 @@ def queue_messages(mock_sqs_environment):
         """
         # Send messages to the queue
         for msg in messages:
-            sqs_client.send_message(QueueUrl=queue_url, MessageBody=json.dumps(msg))
+            sqs_client.send_message(
+                QueueUrl=queue_url,
+                MessageBody=json.dumps(msg),
+                MessageAttributes=headers or {},
+            )
 
         return queue_url, messages
 
     return _queue_messages
 
 
-def test_listener_basic_functionality(queue_messages):
+@pytest.mark.parametrize(
+    "headers", [None, {"timestamp": {"StringValue": "Now", "DataType": "String"}}]
+)
+def test_listener_basic_functionality(queue_messages, headers):
     """
     Test basic message listening and processing
 
@@ -81,7 +89,7 @@ def test_listener_basic_functionality(queue_messages):
     ]
 
     # Queue the test messages
-    queue_url, _ = queue_messages(test_messages)
+    queue_url, _ = queue_messages(test_messages, headers=headers)
 
     # Processed messages container
     processed_messages: List[UserAction] = []
@@ -114,10 +122,71 @@ def test_listener_basic_functionality(queue_messages):
 
     # Wait for processing to complete (with timeout)
     assert processing_complete.wait(timeout=5), "Processing did not complete in time"
+    listener.stop()
+    listener_thread.join()
 
     # Verify messages were processed
     assert len(processed_messages) == 2
     assert [d.model_dump() for d in processed_messages] == test_messages
+
+
+def test_listener_basic_functionality_with_headers(queue_messages):
+    """
+    Test basic message listening and processing
+
+    Args:
+        queue_messages: Fixture to queue messages
+    """
+    test_messages = [
+        {"user_id": 1, "action": "login"},
+        {"user_id": 2, "action": "logout"},
+    ]
+    test_headers = {"timestamp": {"StringValue": "Now", "DataType": "String"}}
+
+    # Queue the test messages
+    queue_url, _ = queue_messages(test_messages, test_headers)
+
+    # Processed messages container
+    processed_messages: List[UserAction] = []
+    processed_headers: List[Headers] = []
+
+    # Create a threading event to signal test completion
+    processing_complete = threading.Event()
+
+    # Create listener
+    listener = AWSSQSEventStreamListener(
+        queue_url=queue_url,
+        config=EventStreamConfig(
+            max_workers=1, max_messages=2, wait_time_seconds=1, auto_ack=True
+        ),
+    )
+
+    def message_handler(message: UserAction, headers: Headers):
+        """Handler to collect processed messages"""
+        processed_messages.append(message)
+        processed_headers.append(headers)
+
+        # Stop listener after processing both messages
+        if len(processed_messages) == 2:
+            processing_complete.set()
+
+    # Start listener in a separate thread
+    listener_thread = threading.Thread(
+        target=listener.listen,
+        kwargs={"handler": message_handler, "error_handler": None},
+    )
+    listener_thread.start()
+
+    # Wait for processing to complete (with timeout)
+    assert processing_complete.wait(timeout=5), "Processing did not complete in time"
+    listener.stop()
+    listener_thread.join()
+
+    # Verify messages were processed
+    assert len(processed_messages) == 2
+    assert len(processed_headers) == 2
+    assert [d.model_dump() for d in processed_messages] == test_messages
+    assert processed_headers == [test_headers] * 2
 
 
 def test_error_handling(queue_messages, mocker):
@@ -164,6 +233,8 @@ def test_error_handling(queue_messages, mocker):
     assert processing_complete.wait(
         timeout=5
     ), "Error handling did not complete in time"
+    listener.stop()
+    listener_thread.join()
 
     # Verify mock were called
     error_handler_mock.assert_called_once()
@@ -215,6 +286,8 @@ def test_configuration_options(queue_messages):
 
     # Wait for processing to complete (with timeout)
     assert processing_complete.wait(timeout=10), "Processing did not complete in time"
+    listener.stop()
+    listener_thread.join()
 
     # Verify all messages were processed
     assert len(processed_messages) == len(test_messages)
